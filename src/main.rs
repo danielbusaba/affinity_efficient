@@ -1,6 +1,5 @@
 use std::io;
 use std::io::Write;
-use std::collections::HashSet;
 use std::collections::HashMap;
 
 fn get_trace() -> Vec<char>
@@ -44,31 +43,20 @@ fn get_trace() -> Vec<char>
 fn get_reuse_time(trace: &Vec<char>) -> HashMap<char, Vec<usize>>
 {
     let mut times: HashMap<char, Vec<usize>> = HashMap::new();
-    for c in trace
+    for i in 0 .. trace.len()
     {
-        if times.contains_key(c)
+        let c = trace [i];
+        if times.contains_key(&c)
         {
-            let mut temp = times.get(c).unwrap().clone();
-            temp.push(1);
-            times.insert(*c, temp.to_vec());
+            let mut temp = times.get(&c).unwrap().clone();
+            let len = times.get(&c).unwrap().len() - 1;
+            temp[len] = i - temp[len];
+            temp.push(i);
+            times.insert(c, temp.to_vec());
         }
         else
         {
-            times.insert(*c, vec!(1));
-        }
-
-        let copy = times.clone();
-        let keys = copy.keys();
-
-        for k in keys
-        {
-            if k != c
-            {
-                let mut temp = times.get(k).unwrap().clone();
-                let last_index = times.get(k).unwrap().len() - 1;
-                temp [last_index] = temp[last_index] + 1;
-                times.insert(*k, temp.to_vec());
-            }
+            times.insert(c, vec!(i));
         }
     }
 
@@ -96,7 +84,7 @@ fn get_reuse_time(trace: &Vec<char>) -> HashMap<char, Vec<usize>>
     return times;
 }
 
-fn get_size(trace: &Vec<char>, start: usize) -> usize
+fn get_size(trace: usize, start: usize) -> usize
 {
     loop
     {
@@ -124,7 +112,7 @@ fn get_size(trace: &Vec<char>, start: usize) -> usize
             break;
         }
         
-        if !(num > (trace.len() - start) || num <= 1)
+        if !(num > (trace - start) || num <= 1)
         {
             return num;
         }
@@ -135,11 +123,18 @@ fn get_size(trace: &Vec<char>, start: usize) -> usize
     }
 }
 
+fn get_affinity(times: HashMap<char, Vec<usize>>, length: usize, size: usize)
+{
+    let windows = length - size + 1;
+}
+
 fn main()
 {
     println!("\nThis program calculates affinity for a given trace and window size.");
 
     let trace = get_trace();
     let t = get_reuse_time(&trace);
-    let s = get_size(&trace, 1);
+    let s = get_size(trace.len(), 1);
+
+    get_affinity(t, trace.len(), s);
 }
