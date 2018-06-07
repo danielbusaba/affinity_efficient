@@ -49,12 +49,12 @@ fn get_reuse_time(trace: &Vec<char>) -> HashMap<char, Vec<usize>>
         if times.contains_key(c)
         {
             let mut temp = times.get(c).unwrap().clone();
-            temp.push(0);
+            temp.push(1);
             times.insert(*c, temp.to_vec());
         }
         else
         {
-            times.insert(*c, vec!(0));
+            times.insert(*c, vec!(1));
         }
 
         let copy = times.clone();
