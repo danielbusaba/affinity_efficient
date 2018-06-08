@@ -1,6 +1,6 @@
 [package]
 name = "affinity_efficient"
 version = "0.1.0"
-authors = ["Daniel Busaba <danielbusaba99@hotmail.com>"]
+authors = ["Daniel Busaba <danielbusaba99@hotmail.com>", "Yumeng Liu <yliu114@u.rochester.edu>"]
 
 [dependencies]
