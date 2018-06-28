@@ -112,23 +112,27 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, HashMap<usize, usize>>, H
         {
             if *j != c
             {
-                let t = Pair(c, *j);
                 let st = (i + 1) - last_seen.get(j).unwrap();
-                let mut temp = 1;
 
-                if switch_times.contains_key(&t)
+                if !last_seen.contains_key(&c) || st < (i + 1) - *last_seen.get(&c).unwrap()
                 {
-                    if switch_times.get(&t).unwrap().contains_key(&st)
+                    let t = Pair(c, *j);
+                    let mut temp = 1;
+
+                    if switch_times.contains_key(&t)
                     {
-                        temp = switch_times.get(&t).unwrap().get(&st).unwrap().clone() + 1;
+                        if switch_times.get(&t).unwrap().contains_key(&st)
+                        {
+                            temp = switch_times.get(&t).unwrap().get(&st).unwrap().clone() + 1;
+                        }
                     }
-                }
-                else
-                {
-                    switch_times.insert(t.clone(), HashMap::new());
-                }
+                    else
+                    {
+                        switch_times.insert(t.clone(), HashMap::new());
+                    }
 
-                switch_times.get_mut(&t).unwrap().insert(st, temp);
+                    switch_times.get_mut(&t).unwrap().insert(st, temp);
+                }
             }
         }
 
