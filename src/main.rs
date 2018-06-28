@@ -1,6 +1,38 @@
-use std::io;
-use std::io::Write;
-use std::collections::HashMap;
+use std::io;    //Used for input
+use std::io::Write; //Used for output
+use std::collections::HashMap;  //Used for storing frequencies
+use std::hash::{Hash, Hasher};  //Used for custom tuple hashing
+
+struct Pair (char, char);  //Custom tuple struct for pair frequencies
+
+impl Hash for Pair //Makes custom tuple communative
+{
+    fn hash<H: Hasher>(&self, state: &mut H)
+    {
+        ((self.0 as usize * self.1 as usize) | (self.0 as usize + self.1 as usize)).hash(state);    //Creates unique but symmetrical hash
+    }
+}
+
+impl PartialEq for Pair    //Defines equality for custom tuple
+{
+    fn eq(&self, other: &Pair) -> bool //Checks for symmetrical equality
+    {
+        (self.0 as usize * self.1 as usize) | (self.0 as usize + self.1 as usize) == (other.0 as usize * other.1 as usize) | (other.0 as usize + other.1 as usize)
+    }
+}
+
+impl Eq for Pair
+{
+
+}
+
+impl Clone for Pair
+{
+    fn clone(&self) -> Pair
+    {
+        Pair(self.0, self.1)
+    }
+}
 
 fn get_trace() -> Vec<char>
 {
@@ -40,52 +72,80 @@ fn get_trace() -> Vec<char>
     return trace;
 }
 
-fn get_reuse_time(trace: &Vec<char>) -> HashMap<char, Vec<usize>>
+fn get_histograms(trace: &Vec<char>) -> (HashMap<char, HashMap<usize, usize>>, HashMap<Pair, HashMap<usize, usize>>, HashMap<char, usize>, HashMap<char, usize>)
 {
-    let mut times: HashMap<char, Vec<usize>> = HashMap::new();
-    let length = trace.len();
 
-    for i in 0 .. length
+    let mut first_seen: HashMap<char, usize> = HashMap::new();
+    let mut last_seen: HashMap<char, usize> = HashMap::new();
+    let mut reuse_times: HashMap<char, HashMap<usize, usize>> = HashMap::new();
+    let mut switch_times: HashMap<Pair, HashMap<usize, usize>> = HashMap::new();
+
+    for i in 0 .. trace.len()
+
     {
         let c = trace [i];
-        if times.contains_key(&c)
+
+        if !reuse_times.contains_key(&c)
         {
-            let mut temp = times.get(&c).unwrap().clone();
-            let len = times.get(&c).unwrap().len() - 1;
-            temp[len] = i - temp[len];
-            temp.push(i);
-            times.insert(c, temp.to_vec());
+            if last_seen.contains_key(&c)
+            {
+                reuse_times.insert(c.clone(), HashMap::new());
+            }
+            else
+            {
+                first_seen.insert(c.clone(), i + 1);
+            }
         }
-        else
+
+        if reuse_times.contains_key(&c)
         {
-            // add s(from start to first access), add current i
-            times.insert(c, vec![i+1,i]);
+
+            let rt = (i + 1) - last_seen.get(&c).unwrap();
+            let mut temp = 1;
+
+            if reuse_times.get(&c).unwrap().contains_key(&rt)
+            {
+                temp = reuse_times.get(&c).unwrap().get(&rt).unwrap().clone() + 1;
+            }
+            
+            reuse_times.get_mut(&c).unwrap().insert(rt, temp);
+
         }
+
+        for j in last_seen.keys()
+        {
+            if *j != c
+            {
+                let st = (i + 1) - last_seen.get(j).unwrap();
+
+
+                if !last_seen.contains_key(&c) || st < (i + 1) - *last_seen.get(&c).unwrap()
+                {
+                    let t = Pair(c, *j);
+                    let mut temp = 1;
+
+
+                    if switch_times.contains_key(&t)
+                    {
+                        if switch_times.get(&t).unwrap().contains_key(&st)
+                        {
+                            temp = switch_times.get(&t).unwrap().get(&st).unwrap().clone() + 1;
+                        }
+                    }
+                    else
+                    {
+                        switch_times.insert(t.clone(), HashMap::new());
+                    }
+
+                    switch_times.get_mut(&t).unwrap().insert(st, temp);
+                }
+            }
+        }
+
+        last_seen.insert(c, i + 1);
     }
 
-    let copy = times.clone();
-    let keys = copy.keys();
-
-    for k in keys
-    {
-        let mut temp = times.get(k).unwrap().clone();
-        let last_index = times.get(k).unwrap().len() - 1;
-        //temp.remove(last_index);
-        temp[last_index] = length-temp[last_index];
-        times.insert(*k, temp.to_vec());
-    }
-
-    for k in times.keys()
-    {
-        print!("{}: ", k);
-        for t in times.get(k).unwrap()
-        {
-            print!("{} ", t);
-        }
-        println!("");
-    }
-
-    return times;
+    (reuse_times, switch_times, first_seen, last_seen)
 }
 
 fn get_size(trace: usize, start: usize) -> usize
@@ -128,82 +188,75 @@ fn get_size(trace: usize, start: usize) -> usize
 }
 
 
-//function to calculate individual occurrence based on reuse times
-fn get_ind_occ(length: usize, winSize: usize, times: &HashMap<char, Vec<usize>>, target: char) -> usize
+fn get_single_frequencies(reuse_times: HashMap<char, HashMap<usize, usize>>, first_seen: HashMap<char, usize>, last_seen: HashMap<char, usize>, window_size: usize, trace_length: usize) -> HashMap<char, usize>
+
 {
-    //get the number of total windows
-    let totalWindows = length - winSize + 1;
+    let mut single_frequencies: HashMap<char, usize> = HashMap::new();
+    let total_windows = trace_length - window_size + 1;
 
-    //get the number of windows NOT containing the char
-    let reuseTimes = times.get(&target).unwrap(); //Unwrap?
-    let mut emptyWindows = 0;
-
-    for t in reuseTimes
+    for i in first_seen.keys()
     {
-        if t > &winSize
+        let rt = first_seen.get(&i).unwrap();
+        if rt > &window_size
         {
-            emptyWindows = emptyWindows + (t - winSize);
+            single_frequencies.insert(*i, rt - window_size);
         }
-
     }
 
-    //individual occurrence = total - NOT
-    let occ = totalWindows - emptyWindows;
-    return occ;
-
-}
-
-//function to get the two chars
-fn get_chars(trace: &HashMap<char, Vec<usize>>) -> Vec<char>
-{
-    let mut chars: Vec<char> = Vec::new();
-    chars = insert_char(trace, chars, "first".to_string());
-    chars = insert_char(trace, chars, "second".to_string());
-    return chars;
-}
-
-fn insert_char(trace: &HashMap<char, Vec<usize>>,mut chars: Vec<char>, order: String) -> Vec<char>
-{
-    loop
+    for i in last_seen.keys()
     {
-        print!("Please input the {} character for comparison: ", order);
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)
-            .expect("Failed to read line");
-        let c = input.trim().to_string().chars().next().unwrap();
-        // TODO: handle empty input None Value
-        let mut valid = true;
-        if c.is_ascii_alphabetic()
+        let rt = trace_length - (last_seen.get(&i).unwrap() - 1);
+        if rt > window_size
         {
-            if trace.contains_key(&c)
+            if single_frequencies.contains_key(&i)
             {
-                chars.push(c);
+                let mut temp = single_frequencies.get(&i).unwrap().clone();
+                temp = temp + (rt - window_size);
+                single_frequencies.insert(*i, temp);
             }
             else
             {
-                println!("Character not in the original trace");
-                valid = false;
+                single_frequencies.insert(*i, rt - window_size);
             }
+        }
+    }
+
+    for i in reuse_times.keys()
+    {
+        for rt in reuse_times.get(i).unwrap().keys()
+        {
+            let f = reuse_times.get(i).unwrap().get(rt).unwrap();
+            if rt > &window_size
+            {
+                if single_frequencies.contains_key(&i)
+                {
+                    let mut temp = single_frequencies.get(&i).unwrap().clone();
+                    temp = temp + f * (rt - window_size);
+                    single_frequencies.insert(*i, temp);
+                }
+                else
+                {
+                    single_frequencies.insert(*i, f * (rt - window_size));
+                }
+            } 
+        }
+    }
+
+    for i in first_seen.keys()
+    {
+        if single_frequencies.contains_key(&i)
+        {
+            let mut temp = single_frequencies.get(&i).unwrap().clone();
+            temp = total_windows - temp;
+            single_frequencies.insert(*i, temp);
         }
         else
         {
-            println!("Invalid Input");
-            valid = false;
-        }
-
-        if valid
-        {
-            break;
+            single_frequencies.insert(*i, total_windows);
         }
     }
-    return chars;
-}
 
-fn get_affinity(times: HashMap<char, Vec<usize>>, length: usize, size: usize)
-{
-    let windows = length - size + 1;
+    single_frequencies
 }
 
 fn main()
@@ -211,15 +264,50 @@ fn main()
     println!("\nThis program calculates affinity for a given trace and window size.");
 
     let trace = get_trace();
-    let t = get_reuse_time(&trace);
-    let s = get_size(trace.len(), 1);
-    let chars = get_chars(&t);
-    let char1 = chars[0];
-    let char2 = chars[1];
 
-    let temp_result1 = get_ind_occ(trace.len(),s,&t,char1);
-    let temp_r2 = get_ind_occ(trace.len(),s,&t,char2);
-    println!("Temp Result is {} and {}", temp_result1, temp_r2);
+    let times = get_histograms(&trace);
 
-    //get_affinity(t, trace.len(), s);
+    println!("\nReuse Time Histogram:");
+    for c in times.0.keys()
+    {
+        println!("\n{}:", c);
+        for s in times.0.get(c).unwrap().keys()
+        {
+            println!("{}: {}", s, times.0.get(c).unwrap().get(s).unwrap());
+        }
+    }
+
+    println!("\nSwitch Time Histogram:");
+    for c in times.1.keys()
+    {
+        println!("\n({}, {}):", c.0, c.1);
+        for s in times.1.get(c).unwrap().keys()
+        {
+            println!("{}: {}", s, times.1.get(c).unwrap().get(s).unwrap());
+        }
+    }
+
+    println!("\nFirst Seen:\n");
+    for c in times.2.keys()
+    {
+        println!("{}: {}", c, times.2.get(c).unwrap());
+    }
+
+    println!("\nLast Seen:\n");
+    for c in times.3.keys()
+    {
+        println!("{}: {}", c, times.3.get(c).unwrap());
+    }
+
+    println!();
+    let window_size = get_size(trace.len(), 1);
+
+    let single_frequencies = get_single_frequencies(times.0, times.2, times.3, window_size, trace.len());
+
+    println!("\nSingle Frequencies:\n");
+    for c in single_frequencies.keys()
+    {
+        println!("{}: {}", c, single_frequencies.get(c).unwrap());
+    }
 }
+
