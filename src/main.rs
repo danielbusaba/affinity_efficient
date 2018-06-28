@@ -26,19 +26,19 @@ impl Eq for Pair
 
 }
 
-impl Clone for Pair
+impl Clone for Pair //Defines copying for custom tuple
 {
-    fn clone(&self) -> Pair
+    fn clone(&self) -> Pair //Returns a copy of the custom tuple
     {
         Pair(self.0, self.1)
     }
 }
 
-fn get_trace() -> Vec<char>
+fn get_trace() -> Vec<char> //Retrieves trace
 {
     let mut trace: Vec<char> = Vec::new();
 
-    loop
+    loop    //Loops until valid trace is inputed
     {
         print!("Please input a trace: ");
         io::stdout().flush().unwrap();
@@ -49,7 +49,7 @@ fn get_trace() -> Vec<char>
         input = input.trim().to_string();
 
         let mut valid = true;
-        for c in input.chars()
+        for c in input.chars()  //Makes sure trace is alphabetic, ignores spaces
         {
             if c.is_ascii_alphabetic()
             {
@@ -63,25 +63,29 @@ fn get_trace() -> Vec<char>
             }
         }
 
+        if trace.len() < 3  //Makes sure the trace has at least three elements
+        {
+            println!("Invalid Trace");
+            valid = false;
+        }
+
         if valid
         {
             break;
         }
     }
 
-    return trace;
+    trace
 }
 
 fn get_histograms(trace: &Vec<char>) -> (HashMap<char, HashMap<usize, usize>>, HashMap<Pair, HashMap<usize, usize>>, HashMap<char, usize>, HashMap<char, usize>)
 {
-
     let mut first_seen: HashMap<char, usize> = HashMap::new();
     let mut last_seen: HashMap<char, usize> = HashMap::new();
     let mut reuse_times: HashMap<char, HashMap<usize, usize>> = HashMap::new();
     let mut switch_times: HashMap<Pair, HashMap<usize, usize>> = HashMap::new();
 
     for i in 0 .. trace.len()
-
     {
         let c = trace [i];
 
@@ -99,7 +103,6 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, HashMap<usize, usize>>, H
 
         if reuse_times.contains_key(&c)
         {
-
             let rt = (i + 1) - last_seen.get(&c).unwrap();
             let mut temp = 1;
 
@@ -118,12 +121,10 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, HashMap<usize, usize>>, H
             {
                 let st = (i + 1) - last_seen.get(j).unwrap();
 
-
                 if !last_seen.contains_key(&c) || st < (i + 1) - *last_seen.get(&c).unwrap()
                 {
                     let t = Pair(c, *j);
                     let mut temp = 1;
-
 
                     if switch_times.contains_key(&t)
                     {
@@ -148,12 +149,12 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, HashMap<usize, usize>>, H
     (reuse_times, switch_times, first_seen, last_seen)
 }
 
-fn get_size(trace: usize, start: usize) -> usize
+fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window size
 {
-    loop
+    loop    //Makes sure size is valid for trace
     {
         let mut num = 0;
-        loop
+        loop    //Makes sure size is a valid usize
         {
             print!("Please input a window size: ");
             io::stdout().flush().unwrap();
@@ -161,11 +162,11 @@ fn get_size(trace: usize, start: usize) -> usize
             let mut input = String::new();
             io::stdin().read_line(&mut input)
                 .expect("Failed to read line");
-
+            
             let input: usize = match input.trim().parse()
             {
                 Ok(int) => int,
-                Err(_) =>
+                Err(_) => 
                 {
                     println!("Invalid Input");
                     continue;
@@ -175,8 +176,8 @@ fn get_size(trace: usize, start: usize) -> usize
 
             break;
         }
-
-        if !(num > (trace - start) || num <= 1)
+        
+        if !(num > (trace_length - start) || num <= 1)   //Makes sure window size is not larger than the trace or less than 2
         {
             return num;
         }
@@ -189,7 +190,6 @@ fn get_size(trace: usize, start: usize) -> usize
 
 
 fn get_single_frequencies(reuse_times: HashMap<char, HashMap<usize, usize>>, first_seen: HashMap<char, usize>, last_seen: HashMap<char, usize>, window_size: usize, trace_length: usize) -> HashMap<char, usize>
-
 {
     let mut single_frequencies: HashMap<char, usize> = HashMap::new();
     let total_windows = trace_length - window_size + 1;
@@ -310,4 +310,3 @@ fn main()
         println!("{}: {}", c, single_frequencies.get(c).unwrap());
     }
 }
-
