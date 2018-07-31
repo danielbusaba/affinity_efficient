@@ -5,6 +5,8 @@ use std::io::Write; //Used for output
 use std::collections::HashMap;  //Used for storing frequencies
 use std::hash::{Hash, Hasher};  //Used for custom tuple hashing
 
+static SUBLOG_BITS: u64 = 8;
+
 struct Pair (char, char);  //Custom tuple struct for pair frequencies
 
 impl Hash for Pair //Makes custom tuple communative
@@ -80,12 +82,13 @@ fn get_trace() -> Vec<char> //Retrieves trace
     trace
 }
 
-fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, HashMap<usize, usize>>, HashMap<char, usize>, HashMap<char, usize>)    //Generates histograms to calculate frequencies
+fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
 {
-    let mut first_seen: HashMap<char, usize> = HashMap::new();  //Stores the first access time that a trace element is seen
-    let mut last_seen: HashMap<char, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
+    let mut last_seen_single: HashMap<char, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
+    let mut last_seen_pair: HashMap<Pair, usize> = HashMap::new();  //Stores the last access time of the first elment of a switch
     let mut reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>> = HashMap::new(); //Stores the reuse times of each trace element
-    let mut switch_times: HashMap<Pair, HashMap<usize, usize>> = HashMap::new();    //Stores the reuse times of each trace element
+    let mut switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the switch times of each trace pair
+    let mut inter_switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the inter-switch times of each trace pair
 
     for i in 0 .. trace.len()   //Iterates through trace
     {
@@ -93,62 +96,51 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
 
         if !reuse_times.contains_key(&c)    //Checks if the element has a reuse time
         {
-            if last_seen.contains_key(&c)   //Checks if the element has been seen before
-            {
-                reuse_times.insert(c.clone(), Histogram::new_tuple(8, trace.len() as u64));  //Creates a new HashMap for the element
-            }
-            else    //Inserts current access time into first seen HashMap otherwise
-            {
-                first_seen.insert(c.clone(), i + 1);
-            }
+            reuse_times.insert(c, Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));  //Creates a new Histogram for the element
+            reuse_times.get_mut(&c).unwrap().add((i + 1) as u64);   //Adds current time to character reuse time histogram
         }
-
-        if reuse_times.contains_key(&c) //Checks if the element has a resue time
+        else
         {
-            let rt: u64 = ((i + 1) - last_seen.get(&c).unwrap()) as u64;  //Sets the current reuse time to be the difference between the current access time and the last access time this trace element was accessed
+            let rt: u64 = ((i + 1) - last_seen_single.get(&c).unwrap()) as u64;  //Sets the current reuse time to be the difference between the current access time and the last access time this trace element was accessed
             reuse_times.get_mut(&c).unwrap().add(rt);  //Adds reuse time to histogram
         }
 
-        for j in last_seen.keys()   //Iterates through the last seen elements
+        for j in last_seen_single.keys()   //Iterates through the last seen elements
         {
             if *j != c  //Makes sure that an element is not compared with itelf
             {
-                let st = (i + 1) - last_seen.get(j).unwrap();   //Sets the switch time to be the difference between the current access time and the last access time the other trace element was seen
+                let st = (i + 1) - last_seen_single.get(j).unwrap();   //Sets the switch time to be the difference between the current access time and the last access time the other trace element was seen
 
-                if !last_seen.contains_key(&c) || st < (i + 1) - *last_seen.get(&c).unwrap()    //Checks if the current trace element has not been seen before or if the switch time is smaller than the current reuse time
+                if !last_seen_single.contains_key(&c) || st < (i + 1) - *last_seen_single.get(&c).unwrap()    //Checks if the current trace element has not been seen before or if the switch time is smaller than the current reuse time
                 {
                     let p = Pair(c, *j);    //Stores the current element pair
-                    let mut temp = 1;   //Sets temporary frequency to 1
 
-                    if switch_times.contains_key(&p)    //Checks if the pair has a switch time
+                    if !switch_times.contains_key(&p)    //Checks if the pair has a switch time
                     {
-                        if switch_times.get(&p).unwrap().contains_key(&st)  //Checks if the pair's switch time has a frequency
-                        {
-                            temp = switch_times.get(&p).unwrap().get(&st).unwrap().clone() + 1; //Stores one more than the old frequency into the temporary frequency
-                        }
-                    }
-                    else    //Creates a new HashMap for the pairs otherwise
-                    {
-                        switch_times.insert(p.clone(), HashMap::new());
+                        switch_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
                     }
 
-                    switch_times.get_mut(&p).unwrap().insert(st, temp); //Writes the temporary frequency into the pair's switch time
+                    switch_times.get_mut(&p).unwrap().add(st as u64); //Adds to the switch time's bucket's frequency
                 }
             }
         }
 
-        last_seen.insert(c, i + 1); //Updates last seen time for current trace element with current access time
+        last_seen_single.insert(c, i + 1); //Updates last seen time for current trace element with current access time
     }
 
-    (reuse_times, switch_times, first_seen, last_seen)  //Returns histograms
+    for c in last_seen_single.keys()    //Adds time to end of trace to each character's reuse time
+    {
+        reuse_times.get_mut(&c).unwrap().add((trace.len() + 1 - *last_seen_single.get(c).unwrap()) as u64);
+    }
+
+    (reuse_times, switch_times, inter_switch_times)  //Returns histograms
 }
 
 fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window size
 {
     loop    //Makes sure size is valid for trace
     {
-        let mut num = 0;
-        loop    //Makes sure size is a valid usize
+        loop    //Makes sure size is a valid usize and is valid for trace
         {
             print!("Please input a window size: ");
             io::stdout().flush().unwrap();
@@ -166,51 +158,24 @@ fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window s
                     continue;
                 }
             };
-            num = input;
-
-            break;
-        }
-        
-        if !(num > (trace_length - start) || num <= 1)   //Makes sure window size is not larger than the trace or less than 2
-        {
-            return num;
-        }
-        else
-        {
+            
+            if !(input > (trace_length - start) || input <= 1)   //Makes sure window size is not larger than the trace or less than 2
+            {
+                return input;
+            }
             println!("Invalid Input");
         }
     }
 }
 
-
-fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>>, first_seen: HashMap<char, usize>, last_seen: HashMap<char, usize>, window_size: usize, trace_length: usize) -> HashMap<char, usize>    //Generates single frequencies using a reusr time histogram, first seen indexes, last seen indexes, time window size, and trace length
+fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>>, window_size: usize, trace_length: usize) -> HashMap<char, usize>    //Generates single frequencies using a reusr time histogram, first seen indexes, last seen indexes, time window size, and trace length
 {
     let mut single_frequencies: HashMap<char, usize> = HashMap::new();  //Stores the single frequencies
     let total_windows = trace_length - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
 
-    for i in first_seen.keys()  //Iterates through first seen access times
-    {
-        let rt = first_seen.get(&i).unwrap();   //Sets the reuse time to the trace element's first access time
-        if rt > &window_size    //Checks if the reuse time is greater than the window size
-        {
-            single_frequencies.insert(*i, total_windows - (rt - window_size));    //Inserts the trace element with its corresponding window count
-        }
-        else    //Inserts total window count with the trace element otherwise
-        {
-            single_frequencies.insert(*i, total_windows);
-        }
-
-        let rt = trace_length - (last_seen.get(&i).unwrap() - 1);   //Sets the reuse time to the trace element's reverse last access time
-        if rt > window_size //Checks if the reuse time is greater than the window size
-        {
-            let mut temp = single_frequencies.get(&i).unwrap().clone(); //Retrieves old window count
-            temp = temp - (rt - window_size);   //Subtracts off the difference between the reuse time and window size
-            single_frequencies.insert(*i, temp);    //Writes new window count
-        }
-    }
-
     for i in reuse_times.keys() //Iterates through reuse time histogram
     {
+        single_frequencies.insert(*i, total_windows);   //Inserts total windows into each character frequency
         for j in reuse_times.get(i).unwrap().get_values()    //Iterates through reuse times of each trace character
         {
             let rt = j.0;
@@ -219,7 +184,7 @@ fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, 
             {
                 continue;
             }
-            
+
             let f = reuse_times.get(i).unwrap().get_tuple(rt);   //Retrieves reuse time frequency
             if rt > window_size as u64    //Checks if the reuse time is larger than the window size
             {
@@ -253,7 +218,10 @@ fn main()
         println!("\n{}:", c);
         for s in times.0.get(c).unwrap().get_values()
         {
-            println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
+            if s != (0, 0, 0, 0)
+            {
+                println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
+            }
         }
     }
 
@@ -261,28 +229,32 @@ fn main()
     for c in times.1.keys()
     {
         println!("\n({}, {}):", c.0, c.1);
-        for s in times.1.get(c).unwrap().keys()
+        for s in times.1.get(c).unwrap().get_values()
         {
-            println!("{}: {}", s, times.1.get(c).unwrap().get(s).unwrap());
+            if s != (0, 0, 0, 0)
+            {
+                println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
+            }
         }
     }
 
-    println!("\nFirst Seen:\n");
+    println!("\nInter-Switch Time Histogram:");
     for c in times.2.keys()
     {
-        println!("{}: {}", c, times.2.get(c).unwrap());
-    }
-
-    println!("\nLast Seen:\n");
-    for c in times.3.keys()
-    {
-        println!("{}: {}", c, times.3.get(c).unwrap());
+        println!("\n({}, {}):", c.0, c.1);
+        for s in times.2.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
+            }
+        }
     }
 
     println!();
     let window_size = get_size(trace.len(), 1); //Gets time window size from user
 
-    let single_frequencies = get_single_frequencies(times.0, times.2, times.3, window_size, trace.len());   //Calculates single frequencies
+    let single_frequencies = get_single_frequencies(times.0, window_size, trace.len());   //Calculates single frequencies
 
     println!("\nSingle Frequencies:\n");
     for c in single_frequencies.keys()  //Prints single frequencies
