@@ -82,13 +82,11 @@ fn get_trace() -> Vec<char> //Retrieves trace
     trace
 }
 
-fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
+fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
 {
     let mut last_seen_single: HashMap<char, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
-    let mut last_seen_pair: HashMap<Pair, usize> = HashMap::new();  //Stores the last access time of the first elment of a switch
     let mut reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>> = HashMap::new(); //Stores the reuse times of each trace element
     let mut switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the switch times of each trace pair
-    let mut inter_switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the inter-switch times of each trace pair
 
     for i in 0 .. trace.len()   //Iterates through trace
     {
@@ -133,45 +131,41 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
         reuse_times.get_mut(&c).unwrap().add((trace.len() + 1 - *last_seen_single.get(c).unwrap()) as u64);
     }
 
-    (reuse_times, switch_times, inter_switch_times)  //Returns histograms
+    (reuse_times, switch_times)  //Returns histograms
 }
 
 fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window size
 {
-    loop    //Makes sure size is valid for trace
+    loop    //Makes sure size is a valid usize and is valid for trace
     {
-        loop    //Makes sure size is a valid usize and is valid for trace
-        {
-            print!("Please input a window size: ");
-            io::stdout().flush().unwrap();
+        print!("Please input a window size: ");
+        io::stdout().flush().unwrap();
 
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)
-                .expect("Failed to read line");
-            
-            let input: usize = match input.trim().parse()
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)
+            .expect("Failed to read line");
+        
+        let input: usize = match input.trim().parse()
+        {
+            Ok(int) => int,
+            Err(_) => 
             {
-                Ok(int) => int,
-                Err(_) => 
-                {
-                    println!("Invalid Input");
-                    continue;
-                }
-            };
-            
-            if !(input > (trace_length - start) || input <= 1)   //Makes sure window size is not larger than the trace or less than 2
-            {
-                return input;
+                println!("Invalid Input");
+                continue;
             }
-            println!("Invalid Input");
+        };
+        
+        if !(input > (trace_length - start) || input <= 1)   //Makes sure window size is not larger than the trace or less than 2
+        {
+            return input;
         }
+        println!("Invalid Input");
     }
 }
 
-fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>>, window_size: usize, trace_length: usize) -> HashMap<char, usize>    //Generates single frequencies using a reusr time histogram, first seen indexes, last seen indexes, time window size, and trace length
+fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<char, usize>    //Generates single frequencies using a reuse time histogram, first seen indexes, last seen indexes, time window size, and total windows
 {
     let mut single_frequencies: HashMap<char, usize> = HashMap::new();  //Stores the single frequencies
-    let total_windows = trace_length - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
 
     for i in reuse_times.keys() //Iterates through reuse time histogram
     {
@@ -185,7 +179,6 @@ fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, 
                 continue;
             }
 
-            let f = reuse_times.get(i).unwrap().get_tuple(rt);   //Retrieves reuse time frequency
             if rt > window_size as u64    //Checks if the reuse time is larger than the window size
             {
                 let mut temp = single_frequencies.get(&i).unwrap().clone(); //Retrieves old window count
@@ -198,9 +191,34 @@ fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, 
     single_frequencies  //Returns single frequencies
 }
 
-fn get_joint_frequenies()
+fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair, usize>   //Generates joint frequencies using a switch time histogram, time window size, and total windows
 {
+    let mut joint_frequencies: HashMap<Pair, usize> = HashMap::new();   //Stores joint frequencies
+    for p in switch_times.keys()    //Iterates through all pairs in switch time histogram
+    {
+        let total = total_windows + window_size;    //Finds one more than the trace length
+        let mut switch_sum = 0; //Stores the sum of all the switch sums
+        let mut switch_count = 0;   //Stores the switch count (including a 0 switch) multiplied by the window size
+        let mut switch_adjust = 0;  //Adjusts number of switches where switch time is larger than the window size
 
+        for st in switch_times.get(&p).unwrap().get_values()    //Iterates through pair's histogram values
+        {
+            switch_sum = switch_sum + st.2; //Adds sum to switch sum
+            switch_count = switch_count + st.3; //Adds frequency to switch count
+            
+            if st.0 > window_size as u64    //Checks if the minimum switch in the bucket is larger than the window size
+            {
+                switch_adjust = switch_adjust + (st.2 - (st.3 * window_size as u64));   //Adds the difference between the switch sum and the switch frequency multiplied by the window size
+            }
+        }
+        switch_count = (switch_count + 1) * window_size as u64; //Adds one to the switch count and multiplies it by the window size
+
+        let absence_windows = total as u64 + switch_sum - switch_count - switch_adjust; //Calculates the nuber of absence windows for the pair
+
+        joint_frequencies.insert(p.clone(), total_windows - absence_windows as usize);  //Inserts the pair with its window count into the joint frequency HashMap
+    }
+
+    joint_frequencies
 }
 
 fn main()
@@ -220,7 +238,7 @@ fn main()
         {
             if s != (0, 0, 0, 0)
             {
-                println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
             }
         }
     }
@@ -233,20 +251,7 @@ fn main()
         {
             if s != (0, 0, 0, 0)
             {
-                println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
-            }
-        }
-    }
-
-    println!("\nInter-Switch Time Histogram:");
-    for c in times.2.keys()
-    {
-        println!("\n({}, {}):", c.0, c.1);
-        for s in times.2.get(c).unwrap().get_values()
-        {
-            if s != (0, 0, 0, 0)
-            {
-                println!("{} - {}: ({}, {})", s.0, s.1, s.2, s.3);
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
             }
         }
     }
@@ -254,11 +259,21 @@ fn main()
     println!();
     let window_size = get_size(trace.len(), 1); //Gets time window size from user
 
-    let single_frequencies = get_single_frequencies(times.0, window_size, trace.len());   //Calculates single frequencies
+    let total_windows = trace.len() - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
+
+    let single_frequencies = get_single_frequencies(times.0, window_size, total_windows);   //Calculates single frequencies
+
+    let joint_frequencies = get_joint_frequencies(times.1, window_size, total_windows);    //Calculates joint frequencies
 
     println!("\nSingle Frequencies:\n");
     for c in single_frequencies.keys()  //Prints single frequencies
     {
         println!("{}: {}", c, single_frequencies.get(c).unwrap());
+    }
+
+    println!("\nJoint Frequencies:\n");
+    for c in joint_frequencies.keys()  //Prints single frequencies
+    {
+        println!("({}, {}): {}", c.0, c.1, joint_frequencies.get(c).unwrap());
     }
 }
