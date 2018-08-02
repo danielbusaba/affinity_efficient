@@ -82,11 +82,14 @@ fn get_trace() -> Vec<char> //Retrieves trace
     trace
 }
 
-fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
+fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
 {
     let mut last_seen_single: HashMap<char, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
+    let mut last_seen_joint: HashMap<Pair, usize> = HashMap::new(); //Stores the last access time the beginning of a pair is seen
     let mut reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>> = HashMap::new(); //Stores the reuse times of each trace element
     let mut switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the switch times of each trace pair
+    let mut inter_switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the inter-switch times of each pair
+    let mut joint_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the sum of switch time and correspondong inter-switch time
 
     for i in 0 .. trace.len()   //Iterates through trace
     {
@@ -119,6 +122,21 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
                     }
 
                     switch_times.get_mut(&p).unwrap().add(st as u64); //Adds to the switch time's bucket's frequency
+
+                    let mut ist = *last_seen_single.get(&j).unwrap() as u64;
+                    if last_seen_joint.contains_key(&p)
+                    {
+                        ist = ist - *last_seen_joint.get(&p).unwrap() as u64;
+                    }
+                    else
+                    {
+                        inter_switch_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
+                        joint_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
+                    }
+                    inter_switch_times.get_mut(&p).unwrap().add(ist);
+                    joint_times.get_mut(&p).unwrap().add(ist + st as u64);
+
+                    last_seen_joint.insert(p, *last_seen_single.get(&j).unwrap());
                 }
             }
         }
@@ -131,7 +149,14 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
         reuse_times.get_mut(&c).unwrap().add((trace.len() + 1 - *last_seen_single.get(c).unwrap()) as u64);
     }
 
-    (reuse_times, switch_times)  //Returns histograms
+    for p in switch_times.keys()    //Adds time to end of trace to each character's reuse time
+    {
+        let ist = (trace.len() + 1 - *last_seen_joint.get(p).unwrap()) as u64;
+        inter_switch_times.get_mut(&p).unwrap().add(ist);
+        joint_times.get_mut(&p).unwrap().add(ist);
+    }
+
+    (reuse_times, switch_times, inter_switch_times, joint_times)  //Returns histograms
 }
 
 fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window size
@@ -191,7 +216,7 @@ fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, 
     single_frequencies  //Returns single frequencies
 }
 
-fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair, usize>   //Generates joint frequencies using a switch time histogram, time window size, and total windows
+fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, joint_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair, usize>   //Generates joint frequencies using a switch time histogram, time window size, and total windows
 {
     let mut joint_frequencies: HashMap<Pair, usize> = HashMap::new();   //Stores joint frequencies
     for p in switch_times.keys()    //Iterates through all pairs in switch time histogram
@@ -200,6 +225,7 @@ fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, 
         let mut switch_sum = 0; //Stores the sum of all the switch sums
         let mut switch_count = 0;   //Stores the switch count (including a 0 switch) multiplied by the window size
         let mut switch_adjust = 0;  //Adjusts number of switches where switch time is larger than the window size
+        let mut joint_adjust = 0;
 
         for st in switch_times.get(&p).unwrap().get_values()    //Iterates through pair's histogram values
         {
@@ -213,7 +239,13 @@ fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, 
         }
         switch_count = (switch_count + 1) * window_size as u64; //Adds one to the switch count and multiplies it by the window size
 
-        let absence_windows = total as u64 + switch_sum - switch_count - switch_adjust; //Calculates the nuber of absence windows for the pair
+        for jst in joint_times.get(&p).unwrap().get_values()
+        {
+            joint_adjust = joint_adjust + (window_size as u64 * jst.3) - jst.2;
+        }
+
+        println!("({}, {}): {} + {} - {} - {} + {}", p.0, p.1, total, switch_sum, switch_count, switch_adjust, joint_adjust);
+        let absence_windows = total as u64 + switch_sum + joint_adjust - switch_count - switch_adjust; //Calculates the nuber of absence windows for the pair
 
         joint_frequencies.insert(p.clone(), total_windows - absence_windows as usize);  //Inserts the pair with its window count into the joint frequency HashMap
     }
@@ -256,6 +288,32 @@ fn main()
         }
     }
 
+    println!("\nInter-Switch Time Histogram:");
+    for c in times.2.keys()
+    {
+        println!("\n({}, {}):", c.0, c.1);
+        for s in times.2.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+            }
+        }
+    }
+
+    println!("\nJoint Time Histogram:");
+    for c in times.3.keys()
+    {
+        println!("\n({}, {}):", c.0, c.1);
+        for s in times.3.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+            }
+        }
+    }
+
     println!();
     let window_size = get_size(trace.len(), 1); //Gets time window size from user
 
@@ -263,7 +321,7 @@ fn main()
 
     let single_frequencies = get_single_frequencies(times.0, window_size, total_windows);   //Calculates single frequencies
 
-    let joint_frequencies = get_joint_frequencies(times.1, window_size, total_windows);    //Calculates joint frequencies
+    let joint_frequencies = get_joint_frequencies(times.1, times.3, window_size, total_windows);    //Calculates joint frequencies
 
     println!("\nSingle Frequencies:\n");
     for c in single_frequencies.keys()  //Prints single frequencies
