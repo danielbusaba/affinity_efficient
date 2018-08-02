@@ -124,19 +124,19 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
                     switch_times.get_mut(&p).unwrap().add(st as u64); //Adds to the switch time's bucket's frequency
 
                     let mut ist = *last_seen_single.get(&j).unwrap() as u64;
-                    if last_seen_joint.contains_key(&p)
+                    if last_seen_joint.contains_key(&p) //Adds final pseudo ist to end
                     {
                         ist = ist - *last_seen_joint.get(&p).unwrap() as u64;
                     }
-                    else
+                    else    //Populates inter-switch times and joint-switch times with histograms otherwise
                     {
                         inter_switch_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
                         joint_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
                     }
-                    inter_switch_times.get_mut(&p).unwrap().add(ist);
-                    joint_times.get_mut(&p).unwrap().add(ist + st as u64);
+                    inter_switch_times.get_mut(&p).unwrap().add(ist);   //Adds inter-switch time to histogram
+                    joint_times.get_mut(&p).unwrap().add(ist + st as u64);  //Adds sum of inter-switch time and switch time to joint-switch histogram
 
-                    last_seen_joint.insert(p, *last_seen_single.get(&j).unwrap());
+                    last_seen_joint.insert(p, *last_seen_single.get(&j).unwrap());  //Adds index of first element of switch to the last seen joint HashMap
                 }
             }
         }
@@ -216,7 +216,7 @@ fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, 
     single_frequencies  //Returns single frequencies
 }
 
-fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, joint_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair, usize>   //Generates joint frequencies using a switch time histogram, time window size, and total windows
+fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, joint_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair, usize>   //Generates joint frequencies using a switch time histogram, a joint switch time histogram, time window size, and total windows
 {
     let mut joint_frequencies: HashMap<Pair, usize> = HashMap::new();   //Stores joint frequencies
     for p in switch_times.keys()    //Iterates through all pairs in switch time histogram
@@ -239,12 +239,14 @@ fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, 
         }
         switch_count = (switch_count + 1) * window_size as u64; //Adds one to the switch count and multiplies it by the window size
 
-        for jst in joint_times.get(&p).unwrap().get_values()
+        for jst in joint_times.get(&p).unwrap().get_values()    //Iterates through the joint swith times
         {
-            joint_adjust = joint_adjust + (window_size as u64 * jst.3) - jst.2;
+            if jst.2 < window_size as u64   //Makes sure the joint switch time is stricly less than the window size
+            {
+                joint_adjust = joint_adjust + (window_size as u64 * jst.3) - jst.2; //Adds the difference between the window size multiplied by the frequency and the joint sum
+            }
         }
 
-        println!("({}, {}): {} + {} - {} - {} + {}", p.0, p.1, total, switch_sum, switch_count, switch_adjust, joint_adjust);
         let absence_windows = total as u64 + switch_sum + joint_adjust - switch_count - switch_adjust; //Calculates the nuber of absence windows for the pair
 
         joint_frequencies.insert(p.clone(), total_windows - absence_windows as usize);  //Inserts the pair with its window count into the joint frequency HashMap
@@ -330,7 +332,7 @@ fn main()
     }
 
     println!("\nJoint Frequencies:\n");
-    for c in joint_frequencies.keys()  //Prints single frequencies
+    for c in joint_frequencies.keys()  //Prints joint frequencies
     {
         println!("({}, {}): {}", c.0, c.1, joint_frequencies.get(c).unwrap());
     }
