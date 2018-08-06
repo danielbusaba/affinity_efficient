@@ -4,6 +4,8 @@ use std::io;    //Used for input
 use std::io::Write; //Used for output
 use std::collections::HashMap;  //Used for storing frequencies
 use std::hash::{Hash, Hasher};  //Used for custom tuple hashing
+use std::cmp::Ordering; //Used for affinity sorting
+use std::collections::BinaryHeap;   //Stores Priority Queue for affinities
 
 static SUBLOG_BITS: u64 = 8;
 
@@ -35,6 +37,41 @@ impl Clone for Pair //Defines copying for custom tuple
     fn clone(&self) -> Pair //Returns a copy of the custom tuple
     {
         Pair(self.0, self.1)
+    }
+}
+
+struct Node //Stores each Pair with its affinity
+{
+    pair: Pair, //Stores the pair of trace elements as a Pair
+    affinity: f64,  //Stores the affinity ratio as a double
+}
+
+impl PartialEq for Node //Defines equality for the Node
+{
+    fn eq(&self, other: &Node) -> bool  //Compares affinity ratios
+    {
+        self.affinity == other.affinity
+    }
+}
+
+impl Eq for Node
+{
+
+}
+
+impl PartialOrd for Node    //Defines comparison for the Node
+{
+    fn partial_cmp(&self, other: &Node) -> Option<Ordering> //Compares affinity ratios
+    {
+        self.affinity.partial_cmp(&other.affinity)
+    }
+}
+
+impl Ord for Node   //Defines comparison for the Node
+{
+    fn cmp(&self, other: &Node) -> Ordering //Compares affinity ratios
+    {
+        self.affinity.partial_cmp(&other.affinity).unwrap()
     }
 }
 
@@ -241,7 +278,7 @@ fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, 
 
         for jst in joint_times.get(&p).unwrap().get_values()    //Iterates through the joint swith times
         {
-            if jst.2 < window_size as u64   //Makes sure the joint switch time is stricly less than the window size
+            if jst.0 < window_size as u64   //Makes sure the joint switch time is stricly less than the window size
             {
                 joint_adjust = joint_adjust + (window_size as u64 * jst.3) - jst.2; //Adds the difference between the window size multiplied by the frequency and the joint sum
             }
@@ -255,6 +292,25 @@ fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, 
     joint_frequencies
 }
 
+fn get_affinities(single_frequencies: HashMap<char, usize>, joint_frequencies: HashMap<Pair, usize>) -> BinaryHeap<Node>    //Takes single frequencies and joint frequencies to create a Priority Queue of affinities
+{
+    let mut affinities: BinaryHeap<Node> = BinaryHeap::new();   //Stores affinities
+    
+    for p in joint_frequencies.keys()   //Iterates through pairs
+    {
+        if single_frequencies.get(&p.0).unwrap() > single_frequencies.get(&p.1).unwrap()    //Checks which single frequency is larger, stores proper affinity
+        {
+            affinities.push(Node{pair: p.clone(), affinity: (*joint_frequencies.get(&p).unwrap() as f64) / (*single_frequencies.get(&p.0).unwrap() as f64)});
+        }
+        else
+        {
+            affinities.push(Node{pair: p.clone(), affinity: (*joint_frequencies.get(&p).unwrap() as f64) / (*single_frequencies.get(&p.1).unwrap() as f64)});
+        }
+    }
+
+    affinities
+}
+
 fn main()
 {
     println!("\nThis program calculates affinity for a given trace and window size.");
@@ -265,7 +321,7 @@ fn main()
 
     //Prints histograms
     println!("\nReuse Time Histogram:");
-    for c in times.0.keys()
+    for c in times.0.keys() //Prints reuse times
     {
         println!("\n{}:", c);
         for s in times.0.get(c).unwrap().get_values()
@@ -278,7 +334,7 @@ fn main()
     }
 
     println!("\nSwitch Time Histogram:");
-    for c in times.1.keys()
+    for c in times.1.keys() //Prints switch times
     {
         println!("\n({}, {}):", c.0, c.1);
         for s in times.1.get(c).unwrap().get_values()
@@ -291,7 +347,7 @@ fn main()
     }
 
     println!("\nInter-Switch Time Histogram:");
-    for c in times.2.keys()
+    for c in times.2.keys() //Prints inter-switch times
     {
         println!("\n({}, {}):", c.0, c.1);
         for s in times.2.get(c).unwrap().get_values()
@@ -303,8 +359,8 @@ fn main()
         }
     }
 
-    println!("\nJoint Time Histogram:");
-    for c in times.3.keys()
+    println!("\nJoint-Switch Time Histogram:");
+    for c in times.3.keys() //Prints joint-switch times
     {
         println!("\n({}, {}):", c.0, c.1);
         for s in times.3.get(c).unwrap().get_values()
@@ -335,5 +391,14 @@ fn main()
     for c in joint_frequencies.keys()  //Prints joint frequencies
     {
         println!("({}, {}): {}", c.0, c.1, joint_frequencies.get(c).unwrap());
+    }
+
+    let mut affinities = get_affinities(single_frequencies, joint_frequencies);
+
+    println!("\nAffinities:\n");
+    while !affinities.is_empty()    //Prints affinities in descending order
+    {
+        let node = affinities.pop().unwrap();
+        println!("({}, {}): {}", node.pair.0, node.pair.1, node.affinity);
     }
 }
