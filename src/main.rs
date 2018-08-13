@@ -1,48 +1,57 @@
 mod histogram;  //Imports histogram module
 use histogram::Histogram;   //Imports Histogram from histogram module
-use std::io;    //Used for input
+mod cchamt; //Imports contiguous hamt module
+use cchamt::ContiguousTrie; //Imports contiguous hamt
+use std::io;    //Used for user input
 use std::io::Write; //Used for output
+use std::env;   //Used for file input
+use std::fs::File;  //Used for file input
+use std::io::prelude::*;    //Used for file input
 use std::collections::HashMap;  //Used for storing frequencies
+use std::collections::HashSet;  //Used to check for input duplicates
 use std::hash::{Hash, Hasher};  //Used for custom tuple hashing
 use std::cmp::Ordering; //Used for affinity sorting
 use std::collections::BinaryHeap;   //Stores Priority Queue for affinities
 
-static SUBLOG_BITS: u64 = 8;
+const SUBLOG_BITS: u64 = 8;
+const KEY_LENGTH: usize = 8;
+const KEY_SEGMENT_SIZE: usize = 4;
+const GROUP_SIZE: usize = 10;
 
-struct Pair (char, char);  //Custom tuple struct for pair frequencies
+struct Pair <T> (T, T);  //Custom tuple struct for pair frequencies
 
-impl Hash for Pair //Makes custom tuple communative
+impl <T: Into<usize> + Copy> Hash for Pair <T> //Makes custom tuple communative
 {
     fn hash<H: Hasher>(&self, state: &mut H)
     {
-        ((self.0 as usize * self.1 as usize) | (self.0 as usize + self.1 as usize)).hash(state);    //Creates unique but symmetrical hash
+        ((self.0.into() * self.1.into()) | (self.0.into() + self.1.into())).hash(state);    //Creates unique but symmetrical hash
     }
 }
 
-impl PartialEq for Pair    //Defines equality for custom tuple
+impl <T: Into<usize> + Copy> PartialEq for Pair <T>    //Defines equality for custom tuple
 {
-    fn eq(&self, other: &Pair) -> bool //Checks for symmetrical equality
+    fn eq(&self, other: &Pair <T>) -> bool //Checks for symmetrical equality
     {
-        (self.0 as usize * self.1 as usize) | (self.0 as usize + self.1 as usize) == (other.0 as usize * other.1 as usize) | (other.0 as usize + other.1 as usize)
+        (self.0.into() * self.1.into()) | (self.0.into() + self.1.into()) == (other.0.into() * other.1.into()) | (other.0.into() + other.1.into())
     }
 }
 
-impl Eq for Pair
+impl <T: Into<usize> + Copy> Eq for Pair <T>
 {
 
 }
 
-impl Clone for Pair //Defines copying for custom tuple
+impl <T: Into<usize> + Copy> Clone for Pair <T> //Defines copying for custom tuple
 {
-    fn clone(&self) -> Pair //Returns a copy of the custom tuple
+    fn clone(&self) -> Pair <T> //Returns a copy of the custom tuple
     {
-        Pair(self.0, self.1)
+        Pair (self.0, self.1)
     }
 }
 
 struct Node //Stores each Pair with its affinity
 {
-    pair: Pair, //Stores the pair of trace elements as a Pair
+    pair: Pair <usize>, //Stores the pair of trace elements as a Pair
     affinity: f64,  //Stores the affinity ratio as a double
 }
 
@@ -75,7 +84,60 @@ impl Ord for Node   //Defines comparison for the Node
     }
 }
 
-fn get_trace() -> Vec<char> //Retrieves trace
+struct Group <T>
+{
+    max_size: usize,
+    size: usize,
+    elements: [T; GROUP_SIZE],
+}
+
+impl PartialEq for Group <char>
+{
+    fn eq(&self, other: &Group <char>) -> bool
+    {
+        self.elements.eq(&other.elements)
+    }
+}
+
+impl Eq for Group <char>
+{
+
+}
+
+impl Clone for Group <char>
+{
+    fn clone(&self) -> Group <char>
+    {
+        Group{max_size: self.max_size.clone(), size: self.size.clone(), elements: self.elements.clone()}
+    }
+}
+
+impl Copy for Group <char>
+{
+
+}
+
+impl Group <char>
+{
+    pub fn new() -> Group <char>
+    {
+        Group{max_size: GROUP_SIZE, size: 0, elements: [' '; GROUP_SIZE]}
+    }
+
+    pub fn append(&mut self, c: char) -> bool
+    {
+        if self.size < self.max_size
+        {
+            self.elements [self.size] = c;
+            self.size = self.size + 1;
+            return true;
+        }
+
+        false
+    }
+}
+
+fn get_trace_user() -> Vec<char> //Retrieves trace
 {
     let mut trace: Vec<char> = Vec::new();
 
@@ -119,18 +181,18 @@ fn get_trace() -> Vec<char> //Retrieves trace
     trace
 }
 
-fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
+fn get_histograms_user(trace: &Vec<char>) -> (HashMap<usize, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
 {
-    let mut last_seen_single: HashMap<char, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
-    let mut last_seen_joint: HashMap<Pair, usize> = HashMap::new(); //Stores the last access time the beginning of a pair is seen
-    let mut reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>> = HashMap::new(); //Stores the reuse times of each trace element
-    let mut switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the switch times of each trace pair
-    let mut inter_switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the inter-switch times of each pair
-    let mut joint_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the sum of switch time and correspondong inter-switch time
+    let mut last_seen_single: HashMap<usize, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
+    let mut last_seen_joint: HashMap<Pair <usize>, usize> = HashMap::new(); //Stores the last access time the beginning of a pair is seen
+    let mut reuse_times: HashMap<usize, Histogram <(u64, u64, u64, u64)>> = HashMap::new(); //Stores the reuse times of each trace element
+    let mut switch_times: HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the switch times of each trace pair
+    let mut inter_switch_times: HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the inter-switch times of each pair
+    let mut joint_times: HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the sum of switch time and correspondong inter-switch time
 
     for i in 0 .. trace.len()   //Iterates through trace
     {
-        let c = trace [i];  //Gets trace element
+        let c = trace [i] as usize;  //Gets trace element
 
         if !reuse_times.contains_key(&c)    //Checks if the element has a reuse time
         {
@@ -151,7 +213,7 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
 
                 if !last_seen_single.contains_key(&c) || st < (i + 1) - *last_seen_single.get(&c).unwrap()    //Checks if the current trace element has not been seen before or if the switch time is smaller than the current reuse time
                 {
-                    let p = Pair(c, *j);    //Stores the current element pair
+                    let p = Pair (c, *j);    //Stores the current element pair
 
                     if !switch_times.contains_key(&p)    //Checks if the pair has a switch time
                     {
@@ -196,7 +258,7 @@ fn get_histograms(trace: &Vec<char>) -> (HashMap<char, Histogram <(u64, u64, u64
     (reuse_times, switch_times, inter_switch_times, joint_times)  //Returns histograms
 }
 
-fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window size
+fn get_size_user(trace_length: usize, start: usize) -> usize   //Inputs time window size
 {
     loop    //Makes sure size is a valid usize and is valid for trace
     {
@@ -225,9 +287,108 @@ fn get_size(trace_length: usize, start: usize) -> usize   //Inputs time window s
     }
 }
 
-fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<char, usize>    //Generates single frequencies using a reuse time histogram, first seen indexes, last seen indexes, time window size, and total windows
+fn get_trace_file(split: Vec<&str>) -> Vec<(usize, usize)>
 {
-    let mut single_frequencies: HashMap<char, usize> = HashMap::new();  //Stores the single frequencies
+    let mut trace: Vec <(usize, usize)> = Vec::with_capacity(split.len());
+
+    for i in 0 .. split.len()
+    {
+        let line = split [i].split(" ").collect::<Vec<&str>>();
+
+        if line.len() != 2
+        {
+            panic!("Incorrect File Format: Line ".to_owned() + &(i + 1).to_string() + " has " + &line.len().to_string() + "Elements");
+        }
+
+        let time: usize = line [0].to_string().parse().unwrap();
+        let element = line [1].to_string().parse().unwrap();
+
+        trace.insert(i, (time, element));
+    }
+
+    trace
+}
+
+fn get_histograms_file(trace: &Vec<(usize, usize)>) -> (HashMap<usize, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>, HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>)    //Generates histograms to calculate frequencies
+{
+    let mut last_seen_single: HashMap<usize, usize> = HashMap::new();   //Stores the last access time that a trace element is seen
+    let mut last_seen_joint: HashMap<Pair <usize>, usize> = HashMap::new(); //Stores the last access time the beginning of a pair is seen
+    let mut reuse_times: HashMap<usize, Histogram <(u64, u64, u64, u64)>> = HashMap::new(); //Stores the reuse times of each trace element
+    let mut switch_times: HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>> = HashMap::new();    //Stores the switch times of each trace pair
+    let mut inter_switch_times: HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the inter-switch times of each pair
+    let mut joint_times: HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>> = HashMap::new();   //Stores the sum of switch time and correspondong inter-switch time
+
+    for i in 0 .. trace.len()   //Iterates through trace
+    {
+        let c = trace [i];  //Gets trace element
+
+        if !reuse_times.contains_key(&c.1)    //Checks if the element has a reuse time
+        {
+            reuse_times.insert(c.1 as usize, Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));  //Creates a new Histogram for the element
+            reuse_times.get_mut(&c.1).unwrap().add((c.0) as u64);   //Adds current time to character reuse time histogram
+        }
+        else
+        {
+            let rt: u64 = (c.0 - last_seen_single.get(&c.1).unwrap()) as u64;  //Sets the current reuse time to be the difference between the current access time and the last access time this trace element was accessed
+            reuse_times.get_mut(&c.1).unwrap().add(rt);  //Adds reuse time to histogram
+        }
+
+        for j in last_seen_single.keys()   //Iterates through the last seen elements
+        {
+            if *j != c.1  //Makes sure that an element is not compared with itelf
+            {
+                let st = c.0 - last_seen_single.get(j).unwrap();   //Sets the switch time to be the difference between the current access time and the last access time the other trace element was seen
+
+                if !last_seen_single.contains_key(&c.1) || st < c.0 - *last_seen_single.get(&c.1).unwrap()    //Checks if the current trace element has not been seen before or if the switch time is smaller than the current reuse time
+                {
+                    let p = Pair (c.1, *j);    //Stores the current element pair
+
+                    if !switch_times.contains_key(&p)    //Checks if the pair has a switch time
+                    {
+                        switch_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
+                    }
+
+                    switch_times.get_mut(&p).unwrap().add(st as u64); //Adds to the switch time's bucket's frequency
+
+                    let mut ist = *last_seen_single.get(&j).unwrap() as u64;
+                    if last_seen_joint.contains_key(&p) //Adds final pseudo ist to end
+                    {
+                        ist = ist - *last_seen_joint.get(&p).unwrap() as u64;
+                    }
+                    else    //Populates inter-switch times and joint-switch times with histograms otherwise
+                    {
+                        inter_switch_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
+                        joint_times.insert(p.clone(), Histogram::new_tuple(SUBLOG_BITS, trace.len() as u64));
+                    }
+                    inter_switch_times.get_mut(&p).unwrap().add(ist);   //Adds inter-switch time to histogram
+                    joint_times.get_mut(&p).unwrap().add(ist + st as u64);  //Adds sum of inter-switch time and switch time to joint-switch histogram
+
+                    last_seen_joint.insert(p, *last_seen_single.get(&j).unwrap());  //Adds index of first element of switch to the last seen joint HashMap
+                }
+            }
+        }
+
+        last_seen_single.insert(c.1, c.0); //Updates last seen time for current trace element with current access time
+    }
+
+    for c in last_seen_single.keys()    //Adds time to end of trace to each character's reuse time
+    {
+        reuse_times.get_mut(&c).unwrap().add((trace.len() + 1 - *last_seen_single.get(c).unwrap()) as u64);
+    }
+
+    for p in switch_times.keys()    //Adds time to end of trace to each character's reuse time
+    {
+        let ist = (trace.len() + 1 - *last_seen_joint.get(p).unwrap()) as u64;
+        inter_switch_times.get_mut(&p).unwrap().add(ist);
+        joint_times.get_mut(&p).unwrap().add(ist);
+    }
+
+    (reuse_times, switch_times, inter_switch_times, joint_times)  //Returns histograms
+}
+
+fn get_single_frequencies(reuse_times: &HashMap<usize, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<usize, usize>    //Generates single frequencies using a reuse time histogram, first seen indexes, last seen indexes, time window size, and total windows
+{
+    let mut single_frequencies: HashMap<usize, usize> = HashMap::new();  //Stores the single frequencies
 
     for i in reuse_times.keys() //Iterates through reuse time histogram
     {
@@ -253,9 +414,9 @@ fn get_single_frequencies(reuse_times: HashMap<char, Histogram <(u64, u64, u64, 
     single_frequencies  //Returns single frequencies
 }
 
-fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, joint_times: HashMap<Pair, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair, usize>   //Generates joint frequencies using a switch time histogram, a joint switch time histogram, time window size, and total windows
+fn get_joint_frequencies (switch_times: &HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>, joint_times: &HashMap<Pair <usize>, Histogram <(u64, u64, u64, u64)>>, window_size: usize, total_windows: usize) -> HashMap<Pair <usize>, usize>   //Generates joint frequencies using a switch time histogram, a joint switch time histogram, time window size, and total windows
 {
-    let mut joint_frequencies: HashMap<Pair, usize> = HashMap::new();   //Stores joint frequencies
+    let mut joint_frequencies: HashMap<Pair <usize>, usize> = HashMap::new();   //Stores joint frequencies
     for p in switch_times.keys()    //Iterates through all pairs in switch time histogram
     {
         let total = total_windows + window_size;    //Finds one more than the trace length
@@ -292,7 +453,7 @@ fn get_joint_frequencies(switch_times: HashMap<Pair, Histogram <(u64, u64, u64, 
     joint_frequencies
 }
 
-fn get_affinities(single_frequencies: HashMap<char, usize>, joint_frequencies: HashMap<Pair, usize>) -> BinaryHeap<Node>    //Takes single frequencies and joint frequencies to create a Priority Queue of affinities
+fn get_affinities(single_frequencies: HashMap<usize, usize>, joint_frequencies: HashMap<Pair <usize>, usize>) -> BinaryHeap<Node>    //Takes single frequencies and joint frequencies to create a Priority Queue of affinities
 {
     let mut affinities: BinaryHeap<Node> = BinaryHeap::new();   //Stores affinities
     
@@ -311,13 +472,53 @@ fn get_affinities(single_frequencies: HashMap<char, usize>, joint_frequencies: H
     affinities
 }
 
+
+fn get_layout(affinities: BinaryHeap<Node>) -> Vec<char>
+{
+    let layout: Vec<char> = Vec::new();
+    let hamt: ContiguousTrie<Group <char>> = ContiguousTrie::new(KEY_LENGTH, KEY_SEGMENT_SIZE);
+
+    layout
+}
+
 fn main()
+{
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2
+    {
+        user_input();
+    }
+    else
+    {
+        if args [1].eq("u")
+        {
+            user_input();
+        }
+        else if args [1].eq("f")
+        {
+            if args.len() > 3
+            {
+                file_input(args);
+            }
+            else
+            {
+                panic!("Too Few Parameters: ".to_owned() + &(args.len().to_string()));
+            }
+        }
+        else
+        {
+            panic!("Not a valid argument: ".to_owned() + &args [1]);
+        }
+    }
+}
+
+fn user_input()
 {
     println!("\nThis program calculates affinity for a given trace and window size.");
 
-    let trace = get_trace();    //Gets trace from user
+    let trace = get_trace_user();    //Gets trace from user
 
-    let times = get_histograms(&trace); //Generates histograms
+    let times = get_histograms_user(&trace); //Generates histograms
 
     //Prints histograms
     println!("\nReuse Time Histogram:");
@@ -336,7 +537,7 @@ fn main()
     println!("\nSwitch Time Histogram:");
     for c in times.1.keys() //Prints switch times
     {
-        println!("\n({}, {}):", c.0, c.1);
+        println!("\n({}, {}):", c.1, c.0);
         for s in times.1.get(c).unwrap().get_values()
         {
             if s != (0, 0, 0, 0)
@@ -349,7 +550,7 @@ fn main()
     println!("\nInter-Switch Time Histogram:");
     for c in times.2.keys() //Prints inter-switch times
     {
-        println!("\n({}, {}):", c.0, c.1);
+        println!("\n({}, {}):", c.1, c.0);
         for s in times.2.get(c).unwrap().get_values()
         {
             if s != (0, 0, 0, 0)
@@ -362,7 +563,7 @@ fn main()
     println!("\nJoint-Switch Time Histogram:");
     for c in times.3.keys() //Prints joint-switch times
     {
-        println!("\n({}, {}):", c.0, c.1);
+        println!("\n({}, {}):", c.1, c.0);
         for s in times.3.get(c).unwrap().get_values()
         {
             if s != (0, 0, 0, 0)
@@ -373,13 +574,13 @@ fn main()
     }
 
     println!();
-    let window_size = get_size(trace.len(), 1); //Gets time window size from user
+    let window_size = get_size_user(trace.len(), 1); //Gets time window size from user
 
     let total_windows = trace.len() - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
 
-    let single_frequencies = get_single_frequencies(times.0, window_size, total_windows);   //Calculates single frequencies
+    let single_frequencies = get_single_frequencies(&times.0, window_size, total_windows);   //Calculates single frequencies
 
-    let joint_frequencies = get_joint_frequencies(times.1, times.3, window_size, total_windows);    //Calculates joint frequencies
+    let joint_frequencies = get_joint_frequencies(&times.1, &times.3, window_size, total_windows);    //Calculates joint frequencies
 
     println!("\nSingle Frequencies:\n");
     for c in single_frequencies.keys()  //Prints single frequencies
@@ -390,7 +591,7 @@ fn main()
     println!("\nJoint Frequencies:\n");
     for c in joint_frequencies.keys()  //Prints joint frequencies
     {
-        println!("({}, {}): {}", c.0, c.1, joint_frequencies.get(c).unwrap());
+        println!("({}, {}): {}", c.1, c.0, joint_frequencies.get(c).unwrap());
     }
 
     let mut affinities = get_affinities(single_frequencies, joint_frequencies);
@@ -400,5 +601,129 @@ fn main()
     {
         let node = affinities.pop().unwrap();
         println!("({}, {}): {}", node.pair.0, node.pair.1, node.affinity);
+    }
+}
+
+fn file_input(args: Vec <String>)
+{
+    let file_name = "traces/".to_owned() + &args [2];
+    let mut file = File::open(&file_name).expect(&("File not Found: ".to_owned() + &file_name));
+
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect(&("File Read Error: ".to_owned() + &file_name));
+
+    let split = contents.split("\n");
+    let split = split.collect::<Vec<&str>>();
+    let min_time: usize = split [0].split(" ").collect::<Vec<&str>>() [0].to_string().parse().unwrap();
+    let max_time: usize = split [split.len() - 1].split(" ").collect::<Vec<&str>>() [0].to_string().parse().unwrap();
+    let max_reuse_time: usize = max_time - min_time;
+    let mut inputs: HashSet <usize> = HashSet::new();
+
+    let mut sizes: Vec <usize> = vec![0; args.len() - 3];
+    for i in 3 .. args.len()
+    {
+        let size = args [i].parse().unwrap();
+
+        if inputs.contains(&size)
+        {
+            panic!("Duplicate Window Size: {}", size);
+        }
+
+        if size > 1 && size < max_reuse_time
+        {
+            sizes [i - 3] = size;
+            inputs.insert(size);
+        }
+        else
+        {
+            panic!("Invalid Window Size: {}", size);
+        }
+    }
+
+    let trace = get_trace_file(split);
+
+    let times = get_histograms_file(&trace);
+
+    //Prints histograms
+    println!("\nReuse Time Histogram:");
+    for c in times.0.keys() //Prints reuse times
+    {
+        println!("\n{}:", c);
+        for s in times.0.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+            }
+        }
+    }
+
+    println!("\nSwitch Time Histogram:");
+    for c in times.1.keys() //Prints switch times
+    {
+        println!("\n({}, {}):", c.1, c.0);
+        for s in times.1.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+            }
+        }
+    }
+
+    println!("\nInter-Switch Time Histogram:");
+    for c in times.2.keys() //Prints inter-switch times
+    {
+        println!("\n({}, {}):", c.1, c.0);
+        for s in times.2.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+            }
+        }
+    }
+
+    println!("\nJoint-Switch Time Histogram:");
+    for c in times.3.keys() //Prints joint-switch times
+    {
+        println!("\n({}, {}):", c.1, c.0);
+        for s in times.3.get(c).unwrap().get_values()
+        {
+            if s != (0, 0, 0, 0)
+            {
+                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+            }
+        }
+    }
+
+    for window_size in sizes
+    {
+        let total_windows = trace.len() - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
+
+        let single_frequencies = get_single_frequencies(&times.0, window_size, total_windows);   //Calculates single frequencies
+
+        let joint_frequencies = get_joint_frequencies(&times.1, &times.3, window_size, total_windows);    //Calculates joint frequencies
+
+        println!("\nSingle Frequencies:\n");
+        for c in single_frequencies.keys()  //Prints single frequencies
+        {
+            println!("{}: {}", c, single_frequencies.get(c).unwrap());
+        }
+
+        println!("\nJoint Frequencies:\n");
+        for c in joint_frequencies.keys()  //Prints joint frequencies
+        {
+            println!("({}, {}): {}", c.1, c.0, joint_frequencies.get(c).unwrap());
+        }
+
+        let mut affinities = get_affinities(single_frequencies, joint_frequencies);
+
+        println!("\nAffinities:\n");
+        while !affinities.is_empty()    //Prints affinities in descending order
+        {
+            let node = affinities.pop().unwrap();
+            println!("({}, {}): {}", node.pair.0, node.pair.1, node.affinity);
+        }
     }
 }
