@@ -24,7 +24,18 @@ impl <T: Into<usize> + Copy> Hash for Pair <T> //Makes custom tuple communative
 {
     fn hash<H: Hasher>(&self, state: &mut H)
     {
-        ((self.0.into() * self.1.into()) | (self.0.into() + self.1.into())).hash(state);    //Creates unique but symmetrical hash
+        let a = self.0.into();
+        let b = self.1.into();
+        if a > b
+        {
+            a.hash(state);
+            b.hash(state);
+        }
+        else
+        {
+            b.hash(state);
+            a.hash(state);
+        }
     }
 }
 
@@ -32,7 +43,32 @@ impl <T: Into<usize> + Copy> PartialEq for Pair <T>    //Defines equality for cu
 {
     fn eq(&self, other: &Pair <T>) -> bool //Checks for symmetrical equality
     {
-        (self.0.into() * self.1.into()) | (self.0.into() + self.1.into()) == (other.0.into() * other.1.into()) | (other.0.into() + other.1.into())
+        let a = self.0.into();
+        let b = self.1.into();
+        let c = other.0.into();
+        let d = other.1.into();
+        if a > b
+        {
+            if c > d
+            {
+                a == c && b == d
+            }
+            else
+            {
+                a == d && b == c
+            }
+        }
+        else
+        {
+            if c > d
+            {
+                b == c && a == d
+            }
+            else
+            {
+                b == d && a == c
+            }
+        }
     }
 }
 
@@ -223,7 +259,7 @@ fn get_histograms_user(trace: &Vec<char>) -> (HashMap<usize, Histogram <(u64, u6
                     switch_times.get_mut(&p).unwrap().add(st as u64); //Adds to the switch time's bucket's frequency
 
                     let mut ist = *last_seen_single.get(&j).unwrap() as u64;
-                    if last_seen_joint.contains_key(&p) //Adds final pseudo ist to end
+                    if last_seen_joint.contains_key(&p)
                     {
                         ist = ist - *last_seen_joint.get(&p).unwrap() as u64;
                     }
@@ -235,6 +271,7 @@ fn get_histograms_user(trace: &Vec<char>) -> (HashMap<usize, Histogram <(u64, u6
                     inter_switch_times.get_mut(&p).unwrap().add(ist);   //Adds inter-switch time to histogram
                     joint_times.get_mut(&p).unwrap().add(ist + st as u64);  //Adds sum of inter-switch time and switch time to joint-switch histogram
 
+                    println!("{}: ({}, {}) -> {}", i, p.0 as u8 as char, p.1 as u8 as char, last_seen_single.get(&j).unwrap());
                     last_seen_joint.insert(p, *last_seen_single.get(&j).unwrap());  //Adds index of first element of switch to the last seen joint HashMap
                 }
             }
@@ -351,7 +388,7 @@ fn get_histograms_file(trace: &Vec<(usize, usize)>) -> (HashMap<usize, Histogram
                     switch_times.get_mut(&p).unwrap().add(st as u64); //Adds to the switch time's bucket's frequency
 
                     let mut ist = *last_seen_single.get(&j).unwrap() as u64;
-                    if last_seen_joint.contains_key(&p) //Adds final pseudo ist to end
+                    if last_seen_joint.contains_key(&p)
                     {
                         ist = ist - *last_seen_joint.get(&p).unwrap() as u64;
                     }
@@ -459,14 +496,8 @@ fn get_affinities(single_frequencies: HashMap<usize, usize>, joint_frequencies: 
     
     for p in joint_frequencies.keys()   //Iterates through pairs
     {
-        if single_frequencies.get(&p.0).unwrap() > single_frequencies.get(&p.1).unwrap()    //Checks which single frequency is larger, stores proper affinity
-        {
-            affinities.push(Node{pair: p.clone(), affinity: (*joint_frequencies.get(&p).unwrap() as f64) / (*single_frequencies.get(&p.0).unwrap() as f64)});
-        }
-        else
-        {
-            affinities.push(Node{pair: p.clone(), affinity: (*joint_frequencies.get(&p).unwrap() as f64) / (*single_frequencies.get(&p.1).unwrap() as f64)});
-        }
+        affinities.push(Node{pair: p.clone(), affinity: (*joint_frequencies.get(&p).unwrap() as f64) / (*single_frequencies.get(&p.0).unwrap() as f64)});
+        affinities.push(Node{pair: Pair(p.1, p.0), affinity: (*joint_frequencies.get(&p).unwrap() as f64) / (*single_frequencies.get(&p.1).unwrap() as f64)});
     }
 
     affinities
@@ -499,6 +530,17 @@ fn main()
             if args.len() > 3
             {
                 file_input(args);
+            }
+            else
+            {
+                panic!("Too Few Parameters: ".to_owned() + &(args.len().to_string()));
+            }
+        }
+        else if args [1].eq("t")
+        {
+            if args.len() > 3
+            {
+                text_input(args);
             }
             else
             {
@@ -644,58 +686,58 @@ fn file_input(args: Vec <String>)
 
     let times = get_histograms_file(&trace);
 
-    //Prints histograms
-    println!("\nReuse Time Histogram:");
-    for c in times.0.keys() //Prints reuse times
-    {
-        println!("\n{}:", c);
-        for s in times.0.get(c).unwrap().get_values()
-        {
-            if s != (0, 0, 0, 0)
-            {
-                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
-            }
-        }
-    }
+    // //Prints histograms
+    // println!("\nReuse Time Histogram:");
+    // for c in times.0.keys() //Prints reuse times
+    // {
+    //     println!("\n{}:", c);
+    //     for s in times.0.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
 
-    println!("\nSwitch Time Histogram:");
-    for c in times.1.keys() //Prints switch times
-    {
-        println!("\n({}, {}):", c.1, c.0);
-        for s in times.1.get(c).unwrap().get_values()
-        {
-            if s != (0, 0, 0, 0)
-            {
-                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
-            }
-        }
-    }
+    // println!("\nSwitch Time Histogram:");
+    // for c in times.1.keys() //Prints switch times
+    // {
+    //     println!("\n({}, {}):", c.1, c.0);
+    //     for s in times.1.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
 
-    println!("\nInter-Switch Time Histogram:");
-    for c in times.2.keys() //Prints inter-switch times
-    {
-        println!("\n({}, {}):", c.1, c.0);
-        for s in times.2.get(c).unwrap().get_values()
-        {
-            if s != (0, 0, 0, 0)
-            {
-                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
-            }
-        }
-    }
+    // println!("\nInter-Switch Time Histogram:");
+    // for c in times.2.keys() //Prints inter-switch times
+    // {
+    //     println!("\n({}, {}):", c.1, c.0);
+    //     for s in times.2.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
 
-    println!("\nJoint-Switch Time Histogram:");
-    for c in times.3.keys() //Prints joint-switch times
-    {
-        println!("\n({}, {}):", c.1, c.0);
-        for s in times.3.get(c).unwrap().get_values()
-        {
-            if s != (0, 0, 0, 0)
-            {
-                println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
-            }
-        }
-    }
+    // println!("\nJoint-Switch Time Histogram:");
+    // for c in times.3.keys() //Prints joint-switch times
+    // {
+    //     println!("\n({}, {}):", c.1, c.0);
+    //     for s in times.3.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
 
     for window_size in sizes
     {
@@ -724,6 +766,144 @@ fn file_input(args: Vec <String>)
         {
             let node = affinities.pop().unwrap();
             println!("({}, {}): {}", node.pair.0, node.pair.1, node.affinity);
+        }
+    }
+}
+
+fn text_input(args: Vec <String>)
+{
+    let file_name = "traces/".to_owned() + &args [2];
+    let mut file = File::open(&file_name).expect(&("File not Found: ".to_owned() + &file_name));
+
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).expect(&("File Read Error: ".to_owned() + &file_name));
+
+    let mut data: Vec<String> = Vec::with_capacity(contents.len());
+    let mut time = 1;
+    for c in contents.chars()
+    {
+        if c.is_ascii_alphabetic()
+        {
+            let character = c.to_lowercase().collect::<Vec<char>>() [0];
+            let line = time.to_string() + " " + &(character as usize).to_string();
+            data.push(line);
+            time = time + 1;
+        }
+    }
+    let split: Vec<&str> = data.iter().map(|s| &**s).collect();
+    
+    let max_reuse_time = contents.len();
+    let mut inputs: HashSet <usize> = HashSet::new();
+
+    let mut sizes: Vec <usize> = vec![0; args.len() - 3];
+    for i in 3 .. args.len()
+    {
+        let size = args [i].parse().unwrap();
+
+        if inputs.contains(&size)
+        {
+            panic!("Duplicate Window Size: {}", size);
+        }
+
+        if size > 1 && size < max_reuse_time
+        {
+            sizes [i - 3] = size;
+            inputs.insert(size);
+        }
+        else
+        {
+            panic!("Invalid Window Size: {}", size);
+        }
+    }
+
+    let trace = get_trace_file(split);
+
+    let times = get_histograms_file(&trace);
+
+    // //Prints histograms
+    // println!("\nReuse Time Histogram:");
+    // for c in times.0.keys() //Prints reuse times
+    // {
+    //     println!("\n{}:", *c as u8 as char);
+    //     for s in times.0.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
+
+    // println!("\nSwitch Time Histogram:");
+    // for c in times.1.keys() //Prints switch times
+    // {
+    //     println!("\n({}, {}):", c.1 as u8 as char, c.0 as u8 as char);
+    //     for s in times.1.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
+
+    // println!("\nInter-Switch Time Histogram:");
+    // for c in times.2.keys() //Prints inter-switch times
+    // {
+    //     println!("\n({}, {}):", c.1 as u8 as char, c.0 as u8 as char);
+    //     for s in times.2.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
+
+    // println!("\nJoint-Switch Time Histogram:");
+    // for c in times.3.keys() //Prints joint-switch times
+    // {
+    //     println!("\n({}, {}):", c.1 as u8 as char, c.0 as u8 as char);
+    //     for s in times.3.get(c).unwrap().get_values()
+    //     {
+    //         if s != (0, 0, 0, 0)
+    //         {
+    //             println!("min: {}, max: {}, sum: {}, frequency: {}", s.0, s.1, s.2, s.3);
+    //         }
+    //     }
+    // }
+
+    for window_size in sizes
+    {
+        let total_windows = trace.len() - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
+
+        let single_frequencies = get_single_frequencies(&times.0, window_size, total_windows);   //Calculates single frequencies
+
+        let joint_frequencies = get_joint_frequencies(&times.1, &times.3, window_size, total_windows);    //Calculates joint frequencies
+
+        // println!("\nSingle Frequencies:\n");
+        // for c in single_frequencies.keys()  //Prints single frequencies
+        // {
+        //     println!("{}: {}", c, single_frequencies.get(c).unwrap());
+        // }
+
+        // println!("\nJoint Frequencies:\n");
+        // for c in joint_frequencies.keys()  //Prints joint frequencies
+        // {
+        //     println!("({}, {}): {}", c.1, c.0, joint_frequencies.get(c).unwrap());
+        // }
+
+        let mut affinities = get_affinities(single_frequencies, joint_frequencies);
+
+        let mut file = File::create("results/".to_owned() + &args [2].clone() + "_" + &window_size.to_string() + ".txt").unwrap();
+        println!("\nAffinities for window size {}:\n", window_size);
+        file.write(("Affinities for window size ".to_owned() + &window_size.to_string() + ":\n\n").as_bytes()).expect("Header Write Error");
+        while !affinities.is_empty()    //Prints affinities in descending order
+        {
+            let node = affinities.pop().unwrap();
+            let line = "(".to_owned() + &(node.pair.0 as u8 as char).to_string() + ", " + &(node.pair.1 as u8 as char).to_string() + "): " + &node.affinity.to_string() + "\n";
+            println!("{}", line);
+            file.write_all(line.as_bytes()).expect("Affinity Write Error");
         }
     }
 }
