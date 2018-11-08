@@ -28,7 +28,7 @@ for line in open("data/" + os.listdir("data/") [0], "r").readlines():
 	pairx.append([])
 	pairy.append([])
 
-for i in range(0, len(pairs)):
+for i in xrange(0, len(pairs)):
 	
 	pairy [i] += [0]
 
@@ -37,18 +37,19 @@ for i in range(0, len(pairs)):
 		lines = open("data/" + filename, "r").readlines()
 		pairy [i] += [float(lines [i] [8:])]
 	
-	pairx [i] += [i + 1 for i in range(len(os.listdir("data/")) + 1)]
+	pairx [i] += [n + 1 for n in range(len(os.listdir("data/")) + 1)]
 
 
 for i in range (0, len(pairs)):
 
-	print (pairs [i])
-	print(pairx [i])
-	print(pairy [i])
-	plt.plot(pairx [i], pairy [i])
+	plt.figure(i)
+	plt.plot(pairx [i], pairy [i], "r-")
 	plt.title(pairs [i])
 	plt.ylim(0, 1)
-	plt.yticks([i/10.0 for i in range(11)])
+	plt.yticks([n/10.0 for n in range(11)])
+	plt.ylabel("Conditional Probablility")
 	plt.xlim(1, 20)
-	plt.xticks([i + 1 for i in range(len(os.listdir("data/")) + 1)])
-	plt.show()
+	plt.xticks([n + 1 for n in range(len(os.listdir("data/")) + 1)])
+	plt.xlabel("Timescale")
+	plt.savefig("graphs/" + pairs [i] + ".pdf", bbox_inches="tight")
+	print (pairs [i])
