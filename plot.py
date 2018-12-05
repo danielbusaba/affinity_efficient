@@ -1,55 +1,93 @@
 import os
+import sys
+import csv
 import matplotlib.pyplot as plt
 
-files = []
+start = int(sys.argv[2])
+end = int(sys.argv[3])
+num_times = end - start + 1
 
-for filename in os.listdir("results/"):
+if len(sys.argv) != 4 or start >= end:
 
-	lines = open("results/" + filename, "r").readlines()
-	file = open("data/" + filename, "w")
-	file.writelines(lines[2:])
-	file.close()
+	print("Invalid Arguments")
+	exit()
 
-	lines = open("data/" + filename, "r").readlines()
-	lines.sort()
-	file = open("data/" + filename, "w")
-	file.writelines(lines)
-	file.close()
-	
-	files.append(lines)
+start_dir = "results/" + sys.argv [1] + "/"
+
+try:
+	os.mkdir("graphs/")
+	print("Created Folder graphs/")
+except OSError:
+	print("Folder graphs/ Already Exists")
+
+graph_dir = "graphs/" + sys.argv [1] + "/"
 
 pairs = []
 pairx = []
 pairy = []
 
-for line in open("data/" + os.listdir("data/") [0], "r").readlines():
+with open(start_dir + os.listdir(start_dir) [0], "r") as tempfile:
+
+	lines = csv.reader(tempfile, delimiter = ";")
+	next(lines, None)
+	sorted_lines = sorted(lines, key = lambda row: row [0], reverse = False)
+
+	row_count = 0
+	for row in sorted_lines:
+
+		print(row)
+		pairs.append(row [0])
+		row_count = row_count + 1
 	
-	pairs.append(line [:6])
-	pairx.append([])
-	pairy.append([])
+	pairx = [] * row_count
+	pairy = [] * row_count
 
-for i in xrange(0, len(pairs)):
-	
-	pairy [i] += [0]
+	for i in range(0, row_count):
 
-	for filename in os.listdir("data/"):
+		pairx.append([0] * num_times)
+		pairy.append([0] * num_times)
 
-		lines = open("data/" + filename, "r").readlines()
-		pairy [i] += [float(lines [i] [8:])]
-	
-	pairx [i] += [n + 1 for n in range(len(os.listdir("data/")) + 1)]
+for filename in os.listdir(start_dir):
 
+	index = int(filename [:filename.find(".")])
+
+	if (index >= start and index <= end):
+
+		with open(start_dir + filename, "r") as csvfile:
+
+			lines = csv.reader(csvfile, delimiter = ";")
+			next(lines, None)
+			sorted_lines = sorted(lines, key = lambda row: row [0], reverse = True)
+
+			for i in range(0, len(sorted_lines)):
+
+				pairx [i] [index - start] = index
+				pairy [i] [index - start] = float(sorted_lines [i] [1])
+
+try:
+	os.mkdir(graph_dir)
+	print("Created Folder " + graph_dir)
+except OSError:
+	print("Folder " + graph_dir + " Already Exists")
 
 for i in range (0, len(pairs)):
 
 	plt.figure(i)
+	#print (str(i) + ": " + str(pairs [i]) + "\nX: " + str(pairx [i]) + "\nY: " + str(pairy [i]) + "\n")
 	plt.plot(pairx [i], pairy [i], "r-")
-	plt.title(pairs [i])
+	
+	try:
+		pairs [i].decode("ascii")
+		plt.title(pairs [i])
+	except UnicodeDecodeError:
+		plt.title("")
+	
 	plt.ylim(0, 1)
 	plt.yticks([n/10.0 for n in range(11)])
 	plt.ylabel("Conditional Probablility")
-	plt.xlim(1, 20)
-	plt.xticks([n + 1 for n in range(len(os.listdir("data/")) + 1)])
+	plt.xlim(start - 1, end + 1)
+	plt.xticks([n + 1 for n in range(num_times + 2)])
 	plt.xlabel("Timescale")
-	plt.savefig("graphs/" + pairs [i] + ".pdf", bbox_inches="tight")
-	print (pairs [i])
+	#plt.show()
+	plt.savefig(graph_dir + pairs [i] + ".pdf", bbox_inches="tight")
+	plt.close()

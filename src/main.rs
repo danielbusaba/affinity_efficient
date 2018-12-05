@@ -4,7 +4,8 @@ mod cchamt; //Imports contiguous hamt module
 use cchamt::ContiguousTrie; //Imports contiguous hamt
 use std::io;    //Used for user input
 use std::io::Write; //Used for output
-use std::env;   //Used for file input
+use std::env;   //Used for parameters in console input
+use std::fs;    //Ised for file output
 use std::fs::File;  //Used for file input
 use std::io::prelude::*;    //Used for file input
 use std::collections::HashMap;  //Used for storing frequencies
@@ -12,6 +13,7 @@ use std::collections::HashSet;  //Used to check for input duplicates
 use std::hash::{Hash, Hasher};  //Used for custom tuple hashing
 use std::cmp::Ordering; //Used for affinity sorting
 use std::collections::BinaryHeap;   //Stores Priority Queue for affinities
+use std::char;
 
 const SUBLOG_BITS: u64 = 8;
 const KEY_LENGTH: usize = 8;
@@ -190,7 +192,7 @@ fn get_trace_user() -> Vec<char> //Retrieves trace
         let mut valid = true;
         for c in input.chars()  //Makes sure trace is alphabetic, ignores spaces
         {
-            if c.is_ascii_alphabetic()
+            if c.is_alphabetic()
             {
                 trace.push(c);
             }
@@ -271,7 +273,7 @@ fn get_histograms_user(trace: &Vec<char>) -> (HashMap<usize, Histogram <(u64, u6
                     inter_switch_times.get_mut(&p).unwrap().add(ist);   //Adds inter-switch time to histogram
                     joint_times.get_mut(&p).unwrap().add(ist + st as u64);  //Adds sum of inter-switch time and switch time to joint-switch histogram
 
-                    println!("{}: ({}, {}) -> {}", i, p.0 as u8 as char, p.1 as u8 as char, last_seen_single.get(&j).unwrap());
+                    println!("{}: ({}, {}) -> {}", i, char::from_u32(p.0 as u32).unwrap(), char::from_u32(p.1 as u32).unwrap(), last_seen_single.get(&j).unwrap());
                     last_seen_joint.insert(p, *last_seen_single.get(&j).unwrap());  //Adds index of first element of switch to the last seen joint HashMap
                 }
             }
@@ -334,7 +336,7 @@ fn get_trace_file(split: Vec<&str>) -> Vec<(usize, usize)>
 
         if line.len() != 2
         {
-            panic!("Incorrect File Format: Line ".to_owned() + &(i + 1).to_string() + " has " + &line.len().to_string() + "Elements");
+            panic!("Incorrect File Format: Line ".to_owned() + &(i + 1).to_string() + " has " + &line.len().to_string() + " Elements");
         }
 
         let time: usize = line [0].to_string().parse().unwrap();
@@ -527,25 +529,44 @@ fn main()
         }
         else if args [1].eq("f")
         {
-            if args.len() > 3
+            if args.len() == 5
             {
                 file_input(args);
             }
-            else
+            else if args.len() < 5
             {
                 panic!("Too Few Parameters: ".to_owned() + &(args.len().to_string()));
             }
+            else
+            {
+                panic!("Too Many Parameters: ".to_owned() + &(args.len().to_string()));
+            }
         }
-        else if args [1].eq("t")
+        else if args [1].eq("c")
         {
-            if args.len() > 3
+            if args.len() == 5
             {
                 text_input(args);
             }
-            else
+            else if args.len() < 5
             {
                 panic!("Too Few Parameters: ".to_owned() + &(args.len().to_string()));
             }
+            else
+            {
+                panic!("Too Many Parameters: ".to_owned() + &(args.len().to_string()));
+            }
+        }
+        else if args [1].eq("w")
+        {
+
+        }
+        else if args [1].eq("h")
+        {
+            println!("u or nothing for user input");
+            println!("f file_in_traces for access time file");
+            println!("c file_in_traces for characters in text file");
+            println!("h file_in_traces for words in text file");
         }
         else
         {
@@ -654,33 +675,10 @@ fn file_input(args: Vec <String>)
     let mut contents = String::new();
     file.read_to_string(&mut contents).expect(&("File Read Error: ".to_owned() + &file_name));
 
-    let split = contents.split("\n");
-    let split = split.collect::<Vec<&str>>();
-    let min_time: usize = split [0].split(" ").collect::<Vec<&str>>() [0].to_string().parse().unwrap();
-    let max_time: usize = split [split.len() - 1].split(" ").collect::<Vec<&str>>() [0].to_string().parse().unwrap();
-    let max_reuse_time: usize = max_time - min_time;
-    let mut inputs: HashSet <usize> = HashSet::new();
+    let split = contents.split("\n").collect::<Vec<&str>>();
 
-    let mut sizes: Vec <usize> = vec![0; args.len() - 3];
-    for i in 3 .. args.len()
-    {
-        let size = args [i].parse().unwrap();
-
-        if inputs.contains(&size)
-        {
-            panic!("Duplicate Window Size: {}", size);
-        }
-
-        if size > 1 && size < max_reuse_time
-        {
-            sizes [i - 3] = size;
-            inputs.insert(size);
-        }
-        else
-        {
-            panic!("Invalid Window Size: {}", size);
-        }
-    }
+    let start = args [3].parse().unwrap();
+    let end = args [4].parse().unwrap();
 
     let trace = get_trace_file(split);
 
@@ -739,7 +737,7 @@ fn file_input(args: Vec <String>)
     //     }
     // }
 
-    for window_size in sizes
+    for window_size in start ..= end
     {
         let total_windows = trace.len() - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
 
@@ -782,7 +780,7 @@ fn text_input(args: Vec <String>)
     let mut time = 1;
     for c in contents.chars()
     {
-        if c.is_ascii_alphabetic()
+        if c.is_alphabetic()
         {
             let character = c.to_lowercase().collect::<Vec<char>>() [0];
             let line = time.to_string() + " " + &(character as usize).to_string();
@@ -790,31 +788,11 @@ fn text_input(args: Vec <String>)
             time = time + 1;
         }
     }
+
     let split: Vec<&str> = data.iter().map(|s| &**s).collect();
-    
-    let max_reuse_time = contents.len();
-    let mut inputs: HashSet <usize> = HashSet::new();
 
-    let mut sizes: Vec <usize> = vec![0; args.len() - 3];
-    for i in 3 .. args.len()
-    {
-        let size = args [i].parse().unwrap();
-
-        if inputs.contains(&size)
-        {
-            panic!("Duplicate Window Size: {}", size);
-        }
-
-        if size > 1 && size < max_reuse_time
-        {
-            sizes [i - 3] = size;
-            inputs.insert(size);
-        }
-        else
-        {
-            panic!("Invalid Window Size: {}", size);
-        }
-    }
+    let start = args [3].parse().unwrap();
+    let end = args [4].parse().unwrap();
 
     let trace = get_trace_file(split);
 
@@ -873,7 +851,7 @@ fn text_input(args: Vec <String>)
     //     }
     // }
 
-    for window_size in sizes
+    for window_size in start ..= end
     {
         let total_windows = trace.len() - window_size + 1; //Sets the total windows to one more than the difference between the trace length and time window size
 
@@ -895,14 +873,20 @@ fn text_input(args: Vec <String>)
 
         let mut affinities = get_affinities(single_frequencies, joint_frequencies);
 
-        let mut file = File::create("results/".to_owned() + &args [2].clone() + "_" + &window_size.to_string() + ".txt").unwrap();
-        println!("\nAffinities for window size {}:\n", window_size);
-        file.write(("Affinities for window size ".to_owned() + &window_size.to_string() + ":\n\n").as_bytes()).expect("Header Write Error");
+        match fs::create_dir("results/".to_owned() + &args [2].clone())
+        {
+            _ => (),
+        }
+
+        let mut file = File::create("results/".to_owned() + &args [2].clone() + "/" + &window_size.to_string() + ".csv").unwrap();
+        //println!("\nAffinities for {} and window size {}:\n", &args [2].clone(), window_size);
+        //file.write(("Affinities for window size ".to_owned() + &window_size.to_string() + ":\n\n").as_bytes()).expect("Header Write Error");
+        file.write_all(("Pair;Affinity\n".to_owned()).as_bytes()).expect("Affinity Write Error");
         while !affinities.is_empty()    //Prints affinities in descending order
         {
             let node = affinities.pop().unwrap();
-            let line = "(".to_owned() + &(node.pair.0 as u8 as char).to_string() + ", " + &(node.pair.1 as u8 as char).to_string() + "): " + &node.affinity.to_string() + "\n";
-            println!("{}", line);
+            let line = "(".to_owned() + &(char::from_u32(node.pair.0 as u32).unwrap()).to_string() + ", " + &(char::from_u32(node.pair.1 as u32).unwrap()).to_string() + ");" + &node.affinity.to_string() + "\n";
+            //println!("{}", line);
             file.write_all(line.as_bytes()).expect("Affinity Write Error");
         }
     }
