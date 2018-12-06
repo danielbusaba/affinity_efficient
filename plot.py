@@ -7,7 +7,7 @@ start = int(sys.argv[2])
 end = int(sys.argv[3])
 num_times = end - start + 1
 
-if len(sys.argv) != 4 or start >= end:
+if (len(sys.argv) != 4 or start >= end) and start >= 2:
 
 	print("Invalid Arguments")
 	exit()
@@ -35,7 +35,6 @@ with open(start_dir + os.listdir(start_dir) [0], "r") as tempfile:
 	row_count = 0
 	for row in sorted_lines:
 
-		print(row)
 		pairs.append(row [0])
 		row_count = row_count + 1
 	
@@ -57,7 +56,7 @@ for filename in os.listdir(start_dir):
 
 			lines = csv.reader(csvfile, delimiter = ";")
 			next(lines, None)
-			sorted_lines = sorted(lines, key = lambda row: row [0], reverse = True)
+			sorted_lines = sorted(lines, key = lambda row: row [0], reverse = False)
 
 			for i in range(0, len(sorted_lines)):
 
