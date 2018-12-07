@@ -397,7 +397,7 @@ fn get_trace_words(split: Vec<&str>) -> Vec<(usize, String)>
         }
 
         let time: usize = line [0].to_string().parse().unwrap();
-        let element = line [1].to_string();
+        let element = line [1].to_string().to_lowercase();
 
         trace.insert(i, (time, element));
     }
