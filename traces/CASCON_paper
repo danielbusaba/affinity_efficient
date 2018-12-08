@@ -1,0 +1,31 @@
+Trace analysis is a common problem in system optimization and
+data analytics. This paper presents new efficient algorithms for
+window co-occurrence analysis, which is to and how likely two
+events will occur together in time windows of different lengths.
+The new solution requires a linear time preprocessing step, after
+which, it only takes logarithmic space and constant time to compute
+co-occurrence of a data pair in windows of any given length. One
+potential use of the new analysis is to reduce the asymptotic cost
+in affinity-based memory layout.
+
+A common problem in computer science is trace analysis, where
+a trace is a continuous sequence of events. An example is the
+sequence of memory requests made by a program during execution.
+Other examples include a sequence of functions executed by an
+application, a sequence of data requests to a web server, a series
+of objects displayed in a video stream, or a series of words in a
+document.
+
+This paper presents new efficient algorithms for window cooccurrence
+analysis, which is to and how likely two events will
+occur together in a trace, i.e. the likelihood that two events will
+appear in the same time window. We can express this likelihood
+by a conditional probability: if a window contains event a, what is
+the probability that this window also contains event b?
+
+In co-occurrence analysis, it is important to consider the timescale.
+If the timescale includes the whole trace, then any pair of events
+co-occur. On the other hand, if the timescale includes just one
+event, then there is no co-occurrence. The main strength of the new
+analysis is that it analyzes co-occurrence in all timescales, from the
+smallest to the largest.

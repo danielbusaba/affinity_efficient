@@ -779,11 +779,12 @@ fn main()
         }
         else if args [1].eq("h")
         {
-            println!("h for help");
-            println!("u or nothing for user input");
-            println!("f file_in_traces start_time end_time for access time file");
-            println!("c file_in_traces start_time end_time for characters in text file");
-            println!("w file_in_traces start_time end_time for words in text file");
+            println!("Help:\t\t\th");
+            println!("User input:\t\tu");
+            println!("File input:\t\tf file_in_trace_folder start_timescale end_timescale");
+            println!("Character input:\tc file_in_trace_folder start_timescale end_timescale");
+            println!("Word input:\t\tw file_in_trace_folder start_timescale end_timescale");
+            println!("*Run plot.py with python and file_in_trace_folder start_timescale end_timescale arguments for graphing");
         }
         else
         {
